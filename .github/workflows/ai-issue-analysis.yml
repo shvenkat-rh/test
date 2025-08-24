@@ -55,18 +55,8 @@ jobs:
       - name: Prepare issue content
         id: issue-content
         run: |
-          # Extract issue title and body, escape for JSON
-          ISSUE_TITLE="${{ github.event.issue.title }}"
-          ISSUE_BODY="${{ github.event.issue.body }}"
-          
-          # Create a temporary file with issue content
-          echo "Issue Title: $ISSUE_TITLE" > issue_content.txt
-          echo "" >> issue_content.txt
-          echo "Issue Description:" >> issue_content.txt
-          echo "$ISSUE_BODY" >> issue_content.txt
-          
+          # Extract issue title and body safely
           echo "Issue content prepared"
-          echo "title=$ISSUE_TITLE" >> $GITHUB_OUTPUT
       
       - name: Run AI issue analysis
         id: analysis
@@ -78,11 +68,24 @@ jobs:
           # Copy the repomix output to the AI triage directory
           cp ../repomix-output.txt .
           
+          # Create temporary files with issue content to avoid shell escaping issues
+          cat > issue_title.txt << 'TITLE_EOF'
+          ${{ github.event.issue.title }}
+          TITLE_EOF
+          
+          cat > issue_description.txt << 'DESC_EOF'
+          ${{ github.event.issue.body }}
+          DESC_EOF
+          
+          # Read title and description from files
+          ISSUE_TITLE=$(cat issue_title.txt)
+          ISSUE_DESC=$(cat issue_description.txt)
+          
           # Run the CLI analysis and capture output
           echo "Running AI analysis..."
           python cli.py \
-            --title "${{ steps.issue-content.outputs.title }}" \
-            --description "${{ github.event.issue.body }}" \
+            --title "$ISSUE_TITLE" \
+            --description "$ISSUE_DESC" \
             --format json \
             --output analysis_result.json \
             --quiet
@@ -91,8 +94,8 @@ jobs:
           
           # Also generate a text format for the comment
           python cli.py \
-            --title "${{ steps.issue-content.outputs.title }}" \
-            --description "${{ github.event.issue.body }}" \
+            --title "$ISSUE_TITLE" \
+            --description "$ISSUE_DESC" \
             --format text \
             --output analysis_result.txt \
             --quiet
