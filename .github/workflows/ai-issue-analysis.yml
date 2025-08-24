@@ -62,30 +62,19 @@ jobs:
         id: analysis
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_DESCRIPTION: ${{ github.event.issue.body }}
         run: |
           cd ai-triage
           
           # Copy the repomix output to the AI triage directory
           cp ../repomix-output.txt .
           
-          # Create temporary files with issue content to avoid shell escaping issues
-          cat > issue_title.txt << 'TITLE_EOF'
-          ${{ github.event.issue.title }}
-          TITLE_EOF
-          
-          cat > issue_description.txt << 'DESC_EOF'
-          ${{ github.event.issue.body }}
-          DESC_EOF
-          
-          # Read title and description from files
-          ISSUE_TITLE=$(cat issue_title.txt)
-          ISSUE_DESC=$(cat issue_description.txt)
-          
-          # Run the CLI analysis and capture output
+          # Run the CLI analysis using environment variables
           echo "Running AI analysis..."
           python cli.py \
             --title "$ISSUE_TITLE" \
-            --description "$ISSUE_DESC" \
+            --description "$ISSUE_DESCRIPTION" \
             --format json \
             --output analysis_result.json \
             --quiet
@@ -95,7 +84,7 @@ jobs:
           # Also generate a text format for the comment
           python cli.py \
             --title "$ISSUE_TITLE" \
-            --description "$ISSUE_DESC" \
+            --description "$ISSUE_DESCRIPTION" \
             --format text \
             --output analysis_result.txt \
             --quiet
