@@ -1,0 +1,139 @@
+name: AI Issue Analysis
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  analyze-issue:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      issues: write
+      contents: read
+    
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js for repomix
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Setup Python for AI analysis
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install repomix
+        run: |
+          npm install -g repomix
+          echo "Repomix installed successfully"
+          repomix --version
+      
+      - name: Generate repomix output for ansible-creator
+        run: |
+          echo "Running repomix on ansible-creator repository using remote..."
+          repomix --remote https://github.com/ansible/ansible-creator --output repomix-output.txt
+          echo "Repomix output generated successfully"
+          ls -la repomix-output.txt
+      
+      - name: Clone AI-Issue-Triage repository
+        uses: actions/checkout@v4
+        with:
+          repository: shvenkat-rh/AI-Issue-Triage
+          path: ai-triage
+          fetch-depth: 1
+      
+      - name: Install Python dependencies for AI triage
+        run: |
+          cd ai-triage
+          pip install -r requirements.txt
+          echo "Python dependencies installed successfully"
+      
+      - name: Prepare issue content
+        id: issue-content
+        run: |
+          # Extract issue title and body, escape for JSON
+          ISSUE_TITLE="${{ github.event.issue.title }}"
+          ISSUE_BODY="${{ github.event.issue.body }}"
+          
+          # Create a temporary file with issue content
+          echo "Issue Title: $ISSUE_TITLE" > issue_content.txt
+          echo "" >> issue_content.txt
+          echo "Issue Description:" >> issue_content.txt
+          echo "$ISSUE_BODY" >> issue_content.txt
+          
+          echo "Issue content prepared"
+          echo "title=$ISSUE_TITLE" >> $GITHUB_OUTPUT
+      
+      - name: Run AI issue analysis
+        id: analysis
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          cd ai-triage
+          
+          # Copy the repomix output to the AI triage directory
+          cp ../repomix-output.txt .
+          
+          # Run the CLI analysis and capture output
+          echo "Running AI analysis..."
+          python cli.py \
+            --title "${{ steps.issue-content.outputs.title }}" \
+            --description "${{ github.event.issue.body }}" \
+            --format json \
+            --output analysis_result.json \
+            --quiet
+          
+          echo "Analysis completed successfully"
+          
+          # Also generate a text format for the comment
+          python cli.py \
+            --title "${{ steps.issue-content.outputs.title }}" \
+            --description "${{ github.event.issue.body }}" \
+            --format text \
+            --output analysis_result.txt \
+            --quiet
+          
+          echo "Text analysis generated"
+      
+      - name: Post analysis as issue comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Read the analysis result
+            let analysisText;
+            try {
+              analysisText = fs.readFileSync('ai-triage/analysis_result.txt', 'utf8');
+            } catch (error) {
+              console.error('Error reading analysis file:', error);
+              analysisText = 'Failed to read analysis results.';
+            }
+            
+            // Use plain text analysis result without formatting
+            const comment = analysisText;
+            
+            // Post the comment
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+            
+            console.log('Analysis comment posted successfully');
+      
+      - name: Upload analysis artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue-analysis-${{ github.event.issue.number }}
+          path: |
+            ai-triage/analysis_result.json
+            ai-triage/analysis_result.txt
+            repomix-output.txt
+          retention-days: 30
