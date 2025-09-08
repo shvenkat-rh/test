@@ -42,14 +42,13 @@ jobs:
       - name: Clone AI-Issue-Triage repository
         uses: actions/checkout@v4
         with:
-          repository: shvenkat-rh/AI-Issue-Triage
-          ref: updated-genai-package
+          repository: shvenkat-rh/automate-issue-triage
           path: ai-triage
           fetch-depth: 1
       
       - name: Install Python dependencies for AI triage
         run: |
-          cd ai-triage
+          cd ai-triage/gemini-cli
           pip install -r requirements.txt
           echo "Python dependencies installed successfully"
       
@@ -66,10 +65,10 @@ jobs:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_DESCRIPTION: ${{ github.event.issue.body }}
         run: |
-          cd ai-triage
+          cd ai-triage/gemini-cli
           
           # Copy the repomix output to the AI triage directory
-          cp ../repomix-output.txt .
+          cp ../../repomix-output.txt .
           
           # Run the CLI analysis using environment variables
           echo "Running AI analysis..."
@@ -101,7 +100,7 @@ jobs:
             // Read the analysis result
             let analysisText;
             try {
-              analysisText = fs.readFileSync('ai-triage/analysis_result.txt', 'utf8');
+              analysisText = fs.readFileSync('ai-triage/gemini-cli/analysis_result.txt', 'utf8');
             } catch (error) {
               console.error('Error reading analysis file:', error);
               analysisText = 'Failed to read analysis results.';
@@ -126,7 +125,7 @@ jobs:
         with:
           name: issue-analysis-${{ github.event.issue.number }}
           path: |
-            ai-triage/analysis_result.json
-            ai-triage/analysis_result.txt
+            ai-triage/gemini-cli/analysis_result.json
+            ai-triage/gemini-cli/analysis_result.txt
             repomix-output.txt
           retention-days: 30
