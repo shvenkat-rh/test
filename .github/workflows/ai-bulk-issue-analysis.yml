@@ -1,8 +1,6 @@
 name: AI Bulk Issue Analysis
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     types: [ closed ]
     branches: [ main ]
@@ -187,7 +185,7 @@ jobs:
                     const newLabels = [];
                     
                     // Add analysis label
-                    newLabels.push('gemini-bulk-analyzed');
+                    newLabels.push('gemini-analyzed');
                     
                     // Add type label if available
                     if (analysisJson.issue_type && analysisJson.issue_type !== 'null' && analysisJson.issue_type !== '') {
