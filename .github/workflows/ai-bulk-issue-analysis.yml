@@ -1,0 +1,125 @@
+name: AI Bulk Issue Analysis
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [ closed ]
+    branches: [ main ]
+
+jobs:
+  analyze-all-issues:
+    if: github.event_name == 'push' || (github.event.pull_request.merged == true)
+    runs-on: ubuntu-latest
+    
+    permissions:
+      issues: write
+      contents: read
+    
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js for repomix
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Setup Python for AI analysis
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install repomix
+        run: |
+          npm install -g repomix
+          echo "Repomix installed successfully"
+          repomix --version
+      
+      - name: Generate repomix output for ansible-creator
+        run: |
+          echo "Running repomix on ansible-creator repository using remote..."
+          repomix --remote https://github.com/ansible/ansible-creator --output repomix-output.txt
+          echo "Repomix output generated successfully"
+          ls -la repomix-output.txt
+      
+      - name: Clone AI-Issue-Triage repository
+        uses: actions/checkout@v4
+        with:
+          repository: kaushiki069/automate-issue-triage
+          path: ai-triage
+          fetch-depth: 1
+      
+      - name: Install Python dependencies for AI triage
+        run: |
+          cd ai-triage/gemini-cli
+          pip install -r requirements.txt
+          echo "Python dependencies installed successfully"
+      
+      - name: Analyze all open issues
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            
+            // Get all open issues
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100
+            });
+            
+            // Filter out pull requests
+            const actualIssues = issues.filter(issue => !issue.pull_request);
+            console.log(`Found ${actualIssues.length} open issues`);
+            
+            // Process each issue
+            for (const issue of actualIssues) {
+              console.log(`Analyzing issue #${issue.number}: ${issue.title}`);
+              
+              try {
+                // Copy the repomix output to the AI triage directory
+                execSync('cp repomix-output.txt ai-triage/gemini-cli/', { cwd: process.cwd() });
+                
+                // Run the CLI analysis
+                const analysisCommand = `cd ai-triage/gemini-cli && python cli.py --title "${issue.title.replace(/"/g, '\\"')}" --description "${(issue.body || '').replace(/"/g, '\\"')}" --format text --output analysis_result.txt --quiet`;
+                execSync(analysisCommand, { 
+                  cwd: process.cwd(),
+                  env: { ...process.env, GEMINI_API_KEY: process.env.GEMINI_API_KEY }
+                });
+                
+                // Read the analysis result
+                const analysisText = fs.readFileSync('ai-triage/gemini-cli/analysis_result.txt', 'utf8');
+                
+                // Post updated analysis comment
+                const comment = `## 🔄 Updated AI Analysis\n\n*This analysis was updated following recent changes to the codebase.*\n\n${analysisText}`;
+                
+                await github.rest.issues.createComment({
+                  issue_number: issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: comment
+                });
+                
+                console.log(`✓ Issue #${issue.number} analyzed successfully`);
+                
+              } catch (error) {
+                console.error(`✗ Issue #${issue.number} analysis failed:`, error);
+              }
+            }
+            
+            console.log('Bulk analysis completed');
+      
+      - name: Upload analysis artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bulk-issue-analysis-${{ github.sha }}
+          path: |
+            ai-triage/gemini-cli/analysis_result.txt
+            repomix-output.txt
+          retention-days: 30
