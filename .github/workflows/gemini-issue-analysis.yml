@@ -42,13 +42,14 @@ jobs:
       - name: Clone AI-Issue-Triage repository
         uses: actions/checkout@v4
         with:
-          repository: kaushiki069/automate-issue-triage
+          repository: shvenkat-rh/AI-Issue-Triage
+          ref: updated-genai-package
           path: ai-triage
           fetch-depth: 1
       
       - name: Install Python dependencies for AI triage
         run: |
-          cd ai-triage/gemini-cli
+          cd ai-triage
           pip install -r requirements.txt
           echo "Python dependencies installed successfully"
       
