@@ -42,13 +42,14 @@ jobs:
       - name: Clone AI-Issue-Triage repository
         uses: actions/checkout@v4
         with:
-          repository: kaushiki069/automate-issue-triage
+          repository: shvenkat-rh/AI-Issue-Triage
+          ref: updated-genai-package
           path: ai-triage
           fetch-depth: 1
       
       - name: Install Python dependencies for AI triage
         run: |
-          cd ai-triage/gemini-cli
+          cd ai-triage
           pip install -r requirements.txt
           echo "Python dependencies installed successfully"
       
@@ -65,10 +66,10 @@ jobs:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_DESCRIPTION: ${{ github.event.issue.body }}
         run: |
-          cd ai-triage/gemini-cli
+          cd ai-triage
           
           # Copy the repomix output to the AI triage directory
-          cp ../../repomix-output.txt .
+          cp ../repomix-output.txt .
           
           # Run the CLI analysis using environment variables
           echo "Running AI analysis..."
@@ -91,6 +92,24 @@ jobs:
           
           echo "Text analysis generated"
       
+      - name: Parse Analysis Results
+        id: parse
+        run: |
+          cd ai-triage
+          
+          # Extract key information from the analysis
+          ISSUE_TYPE=$(jq -r '.issue_type' analysis_result.json)
+          SEVERITY=$(jq -r '.severity' analysis_result.json)
+          CONFIDENCE=$(jq -r '.confidence_score' analysis_result.json)
+          SUMMARY=$(jq -r '.analysis_summary' analysis_result.json)
+          
+          echo "issue_type=$ISSUE_TYPE" >> $GITHUB_OUTPUT
+          echo "severity=$SEVERITY" >> $GITHUB_OUTPUT
+          echo "confidence=$CONFIDENCE" >> $GITHUB_OUTPUT
+          echo "summary<<EOF" >> $GITHUB_OUTPUT
+          echo "$SUMMARY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
       - name: Post analysis as issue comment
         uses: actions/github-script@v7
         with:
@@ -100,7 +119,7 @@ jobs:
             // Read the analysis result
             let analysisText;
             try {
-              analysisText = fs.readFileSync('ai-triage/gemini-cli/analysis_result.txt', 'utf8');
+              analysisText = fs.readFileSync('ai-triage/analysis_result.txt', 'utf8');
             } catch (error) {
               console.error('Error reading analysis file:', error);
               analysisText = 'Failed to read analysis results.';
@@ -119,13 +138,46 @@ jobs:
             
             console.log('Analysis comment posted successfully');
       
+      - name: Add Labels Based on Analysis
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueType = '${{ steps.parse.outputs.issue_type }}';
+            const severity = '${{ steps.parse.outputs.severity }}';
+            
+            const labels = [];
+            
+            // Add analysis label
+            labels.push('gemini-analyzed');
+            
+            // Add type label if available
+            if (issueType && issueType !== 'null' && issueType !== '') {
+              labels.push(`type:${issueType.toLowerCase()}`);
+            }
+            
+            // Add severity label if available
+            if (severity && severity !== 'null' && severity !== '') {
+              labels.push(`severity:${severity.toLowerCase()}`);
+            }
+            
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                labels: labels
+              });
+              
+              console.log(`Added labels: ${labels.join(', ')}`);
+            }
+      
       - name: Upload analysis artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: issue-analysis-${{ github.event.issue.number }}
           path: |
-            ai-triage/gemini-cli/analysis_result.json
-            ai-triage/gemini-cli/analysis_result.txt
+            ai-triage/analysis_result.json
+            ai-triage/analysis_result.txt
             repomix-output.txt
           retention-days: 30
