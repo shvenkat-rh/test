@@ -1,8 +1,9 @@
 name: Claude Issue Analysis
 
-on:
-  issues:
-    types: [opened]
+# Workflow disabled - uncomment the 'on:' section below to re-enable
+# on:
+#   issues:
+#     types: [opened]
 
 jobs:
   analyze-issue:
