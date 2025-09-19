@@ -1,232 +1,232 @@
-name: Claude Issue Analysis
+# name: Claude Issue Analysis
 
-# Workflow disabled - uncomment the 'on:' section below to re-enable
-# on:
-#   issues:
-#     types: [opened]
+# # Workflow disabled - uncomment the 'on:' section below to re-enable
+# # on:
+# #   issues:
+# #     types: [opened]
 
-jobs:
-  analyze-issue:
-    runs-on: ubuntu-latest
+# jobs:
+#   analyze-issue:
+#     runs-on: ubuntu-latest
     
-    permissions:
-      issues: write
-      contents: read
+#     permissions:
+#       issues: write
+#       contents: read
     
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+#     steps:
+#     - name: Checkout repository
+#       uses: actions/checkout@v4
     
-    - name: Setup Node.js for repomix
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
+#     - name: Setup Node.js for repomix
+#       uses: actions/setup-node@v4
+#       with:
+#         node-version: '18'
     
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+#     - name: Set up Python
+#       uses: actions/setup-python@v4
+#       with:
+#         python-version: '3.11'
     
-    - name: Install repomix
-      run: |
-        npm install -g repomix
-        echo "Repomix installed successfully"
-        repomix --version
+#     - name: Install repomix
+#       run: |
+#         npm install -g repomix
+#         echo "Repomix installed successfully"
+#         repomix --version
     
-    - name: Generate codebase summary
-      run: |
-        echo "Generating codebase summary with repomix..."
-        if [ ! -f "repomix-output.txt" ]; then
-          # Generate repomix output for current repository
-          repomix --output repomix-output.txt
-          echo "Repomix output generated successfully"
-          ls -la repomix-output.txt
-        else
-          echo "Repomix output already exists"
-        fi
+#     - name: Generate codebase summary
+#       run: |
+#         echo "Generating codebase summary with repomix..."
+#         if [ ! -f "repomix-output.txt" ]; then
+#           # Generate repomix output for current repository
+#           repomix --output repomix-output.txt
+#           echo "Repomix output generated successfully"
+#           ls -la repomix-output.txt
+#         else
+#           echo "Repomix output already exists"
+#         fi
     
-    - name: Clone AI-Issue-Triage repository
-      uses: actions/checkout@v4
-      with:
-        repository: shvenkat-rh/AI-Issue-Triage
-        ref: updated-genai-package
-        path: ai-triage
-        fetch-depth: 1
+#     - name: Clone AI-Issue-Triage repository
+#       uses: actions/checkout@v4
+#       with:
+#         repository: shvenkat-rh/AI-Issue-Triage
+#         ref: updated-genai-package
+#         path: ai-triage
+#         fetch-depth: 1
     
-    - name: Install Python dependencies for Claude analyzer
-      run: |
-        cd ai-triage
-        pip install -r requirements.txt
-        echo "Python dependencies installed successfully"
+#     - name: Install Python dependencies for Claude analyzer
+#       run: |
+#         cd ai-triage
+#         pip install -r requirements.txt
+#         echo "Python dependencies installed successfully"
     
-    - name: Authenticate to Google Cloud (if using Vertex AI)
-      if: env.CLAUDE_CODE_USE_VERTEX == '1'
-      uses: google-github-actions/auth@v1
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
+#     - name: Authenticate to Google Cloud (if using Vertex AI)
+#       if: env.CLAUDE_CODE_USE_VERTEX == '1'
+#       uses: google-github-actions/auth@v1
+#       with:
+#         credentials_json: ${{ secrets.GCP_SA_KEY }}
     
-    - name: Set up environment variables
-      run: |
-        # Set up Claude API configuration
-        if [ "${{ secrets.ANTHROPIC_API_KEY }}" != "" ]; then
-          echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> $GITHUB_ENV
-        fi
+#     - name: Set up environment variables
+#       run: |
+#         # Set up Claude API configuration
+#         if [ "${{ secrets.ANTHROPIC_API_KEY }}" != "" ]; then
+#           echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> $GITHUB_ENV
+#         fi
         
-        # Set up Vertex AI configuration if enabled
-        if [ "${{ secrets.GCP_PROJECT_ID }}" != "" ]; then
-          echo "ANTHROPIC_VERTEX_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}" >> $GITHUB_ENV
-          echo "CLAUDE_CODE_USE_VERTEX=1" >> $GITHUB_ENV
-          echo "CLOUD_ML_REGION=us-east5" >> $GITHUB_ENV
-        fi
+#         # Set up Vertex AI configuration if enabled
+#         if [ "${{ secrets.GCP_PROJECT_ID }}" != "" ]; then
+#           echo "ANTHROPIC_VERTEX_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}" >> $GITHUB_ENV
+#           echo "CLAUDE_CODE_USE_VERTEX=1" >> $GITHUB_ENV
+#           echo "CLOUD_ML_REGION=us-east5" >> $GITHUB_ENV
+#         fi
     
-    - name: Prepare issue content and copy repomix output
-      id: prepare
-      run: |
-        cd ai-triage
+#     - name: Prepare issue content and copy repomix output
+#       id: prepare
+#       run: |
+#         cd ai-triage
         
-        # Copy the repomix output to the AI triage directory
-        cp ../repomix-output.txt .
+#         # Copy the repomix output to the AI triage directory
+#         cp ../repomix-output.txt .
         
-        echo "Issue content prepared and repomix output copied"
+#         echo "Issue content prepared and repomix output copied"
     
-    - name: Analyze Issue with Claude
-      env:
-        ISSUE_TITLE: ${{ github.event.issue.title }}
-        ISSUE_DESCRIPTION: ${{ github.event.issue.body }}
-      run: |
-        cd ai-triage
+#     - name: Analyze Issue with Claude
+#       env:
+#         ISSUE_TITLE: ${{ github.event.issue.title }}
+#         ISSUE_DESCRIPTION: ${{ github.event.issue.body }}
+#       run: |
+#         cd ai-triage
         
-        echo "Running Claude issue analysis..."
-        python claude_cli.py \
-          --title "$ISSUE_TITLE" \
-          --description "$ISSUE_DESCRIPTION" \
-          --format json \
-          --output analysis.json \
-          --quiet
+#         echo "Running Claude issue analysis..."
+#         python claude_cli.py \
+#           --title "$ISSUE_TITLE" \
+#           --description "$ISSUE_DESCRIPTION" \
+#           --format json \
+#           --output analysis.json \
+#           --quiet
         
-        echo "Analysis completed successfully"
+#         echo "Analysis completed successfully"
         
-        # Also generate a text format for the comment
-        python claude_cli.py \
-          --title "$ISSUE_TITLE" \
-          --description "$ISSUE_DESCRIPTION" \
-          --format text \
-          --output analysis.txt \
-          --quiet
+#         # Also generate a text format for the comment
+#         python claude_cli.py \
+#           --title "$ISSUE_TITLE" \
+#           --description "$ISSUE_DESCRIPTION" \
+#           --format text \
+#           --output analysis.txt \
+#           --quiet
         
-        echo "Text analysis generated"
+#         echo "Text analysis generated"
     
-    - name: Parse Analysis Results
-      id: parse
-      run: |
-        cd ai-triage
+#     - name: Parse Analysis Results
+#       id: parse
+#       run: |
+#         cd ai-triage
         
-        # Extract key information from the analysis
-        ISSUE_TYPE=$(jq -r '.issue_type' analysis.json)
-        SEVERITY=$(jq -r '.severity' analysis.json)
-        CONFIDENCE=$(jq -r '.confidence_score' analysis.json)
-        SUMMARY=$(jq -r '.analysis_summary' analysis.json)
+#         # Extract key information from the analysis
+#         ISSUE_TYPE=$(jq -r '.issue_type' analysis.json)
+#         SEVERITY=$(jq -r '.severity' analysis.json)
+#         CONFIDENCE=$(jq -r '.confidence_score' analysis.json)
+#         SUMMARY=$(jq -r '.analysis_summary' analysis.json)
         
-        echo "issue_type=$ISSUE_TYPE" >> $GITHUB_OUTPUT
-        echo "severity=$SEVERITY" >> $GITHUB_OUTPUT
-        echo "confidence=$CONFIDENCE" >> $GITHUB_OUTPUT
-        echo "summary<<EOF" >> $GITHUB_OUTPUT
-        echo "$SUMMARY" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+#         echo "issue_type=$ISSUE_TYPE" >> $GITHUB_OUTPUT
+#         echo "severity=$SEVERITY" >> $GITHUB_OUTPUT
+#         echo "confidence=$CONFIDENCE" >> $GITHUB_OUTPUT
+#         echo "summary<<EOF" >> $GITHUB_OUTPUT
+#         echo "$SUMMARY" >> $GITHUB_OUTPUT
+#         echo "EOF" >> $GITHUB_OUTPUT
     
-    - name: Format Analysis for Comment
-      id: format
-      run: |
-        cd ai-triage
+#     - name: Format Analysis for Comment
+#       id: format
+#       run: |
+#         cd ai-triage
         
-        # Read the text analysis for the main comment body
-        ANALYSIS_TEXT=$(cat analysis.txt)
+#         # Read the text analysis for the main comment body
+#         ANALYSIS_TEXT=$(cat analysis.txt)
         
-        # Create a formatted comment with both text analysis and JSON details
-        cat << 'EOF' > comment.md
-        ## 🤖 Claude AI Analysis
+#         # Create a formatted comment with both text analysis and JSON details
+#         cat << 'EOF' > comment.md
+#         ## 🤖 Claude AI Analysis
         
-        **Classification:** `${{ steps.parse.outputs.issue_type }}` | **Severity:** `${{ steps.parse.outputs.severity }}` | **Confidence:** `${{ steps.parse.outputs.confidence }}`
+#         **Classification:** `${{ steps.parse.outputs.issue_type }}` | **Severity:** `${{ steps.parse.outputs.severity }}` | **Confidence:** `${{ steps.parse.outputs.confidence }}`
         
-        ### Analysis Results
+#         ### Analysis Results
         
-        EOF
+#         EOF
         
-        # Add the text analysis
-        echo "$ANALYSIS_TEXT" >> comment.md
+#         # Add the text analysis
+#         echo "$ANALYSIS_TEXT" >> comment.md
         
-        # Add detailed JSON analysis in a collapsible section
-        cat << 'EOF' >> comment.md
+#         # Add detailed JSON analysis in a collapsible section
+#         cat << 'EOF' >> comment.md
         
-        ### Detailed Analysis (JSON)
-        <details>
-        <summary>Click to expand full structured analysis</summary>
+#         ### Detailed Analysis (JSON)
+#         <details>
+#         <summary>Click to expand full structured analysis</summary>
         
-        ```json
-        EOF
-        cat analysis.json >> comment.md
-        echo '```' >> comment.md
-        echo '</details>' >> comment.md
-        echo '' >> comment.md
-        echo '_Analysis generated by Claude AI_' >> comment.md
+#         ```json
+#         EOF
+#         cat analysis.json >> comment.md
+#         echo '```' >> comment.md
+#         echo '</details>' >> comment.md
+#         echo '' >> comment.md
+#         echo '_Analysis generated by Claude AI_' >> comment.md
     
-    - name: Comment on Issue
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const fs = require('fs');
-          const comment = fs.readFileSync('ai-triage/comment.md', 'utf8');
+#     - name: Comment on Issue
+#       uses: actions/github-script@v7
+#       with:
+#         script: |
+#           const fs = require('fs');
+#           const comment = fs.readFileSync('ai-triage/comment.md', 'utf8');
           
-          await github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: comment
-          });
+#           await github.rest.issues.createComment({
+#             issue_number: context.issue.number,
+#             owner: context.repo.owner,
+#             repo: context.repo.repo,
+#             body: comment
+#           });
           
-          console.log('Analysis comment posted successfully');
+#           console.log('Analysis comment posted successfully');
     
-    - name: Add Labels Based on Analysis
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const issueType = '${{ steps.parse.outputs.issue_type }}';
-          const severity = '${{ steps.parse.outputs.severity }}';
+#     - name: Add Labels Based on Analysis
+#       uses: actions/github-script@v7
+#       with:
+#         script: |
+#           const issueType = '${{ steps.parse.outputs.issue_type }}';
+#           const severity = '${{ steps.parse.outputs.severity }}';
           
-          const labels = [];
+#           const labels = [];
           
-          // Add analysis label
-          labels.push('claude-analyzed');
+#           // Add analysis label
+#           labels.push('claude-analyzed');
           
-          // Add type label if available
-          if (issueType && issueType !== 'null' && issueType !== '') {
-            labels.push(`type:${issueType.toLowerCase()}`);
-          }
+#           // Add type label if available
+#           if (issueType && issueType !== 'null' && issueType !== '') {
+#             labels.push(`type:${issueType.toLowerCase()}`);
+#           }
           
-          // Add severity label if available
-          if (severity && severity !== 'null' && severity !== '') {
-            labels.push(`severity:${severity.toLowerCase()}`);
-          }
+#           // Add severity label if available
+#           if (severity && severity !== 'null' && severity !== '') {
+#             labels.push(`severity:${severity.toLowerCase()}`);
+#           }
           
-          if (labels.length > 0) {
-            await github.rest.issues.addLabels({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              labels: labels
-            });
+#           if (labels.length > 0) {
+#             await github.rest.issues.addLabels({
+#               issue_number: context.issue.number,
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               labels: labels
+#             });
             
-            console.log(`Added labels: ${labels.join(', ')}`);
-          }
+#             console.log(`Added labels: ${labels.join(', ')}`);
+#           }
     
-    - name: Upload Analysis Artifacts
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: claude-analysis-${{ github.run_id }}
-        path: |
-          ai-triage/analysis.json
-          ai-triage/analysis.txt
-          ai-triage/comment.md
-          repomix-output.txt
-        retention-days: 30
+#     - name: Upload Analysis Artifacts
+#       uses: actions/upload-artifact@v4
+#       if: always()
+#       with:
+#         name: claude-analysis-${{ github.run_id }}
+#         path: |
+#           ai-triage/analysis.json
+#           ai-triage/analysis.txt
+#           ai-triage/comment.md
+#           repomix-output.txt
+#         retention-days: 30
