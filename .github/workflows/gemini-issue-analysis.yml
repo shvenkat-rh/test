@@ -59,8 +59,8 @@ jobs:
           # Extract issue title and body safely
           echo "Issue content prepared"
       
-      - name: Run AI issue analysis
-        id: analysis
+      - name: Check for duplicate issues
+        id: duplicate-check
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
@@ -70,6 +70,49 @@ jobs:
           
           # Copy the repomix output to the AI triage directory
           cp ../repomix-output.txt .
+          
+          # Run duplicate check first
+          echo "Checking for duplicate issues..."
+          python duplicate_cli.py \
+            --title "$ISSUE_TITLE" \
+            --description "$ISSUE_DESCRIPTION" \
+            --format json \
+            --output duplicate_result.json \
+            --quiet
+          
+          # Also generate text format for duplicate check
+          python duplicate_cli.py \
+            --title "$ISSUE_TITLE" \
+            --description "$ISSUE_DESCRIPTION" \
+            --format text \
+            --output duplicate_result.txt \
+            --quiet
+          
+          echo "Duplicate check completed"
+          
+          # Check if duplicate was found
+          if [ -f duplicate_result.json ]; then
+            IS_DUPLICATE=$(jq -r '.is_duplicate // false' duplicate_result.json)
+            echo "is_duplicate=$IS_DUPLICATE" >> $GITHUB_OUTPUT
+            
+            if [ "$IS_DUPLICATE" = "true" ]; then
+              DUPLICATE_ISSUE_URL=$(jq -r '.duplicate_issue_url // ""' duplicate_result.json)
+              DUPLICATE_ISSUE_NUMBER=$(jq -r '.duplicate_issue_number // ""' duplicate_result.json)
+              echo "duplicate_issue_url=$DUPLICATE_ISSUE_URL" >> $GITHUB_OUTPUT
+              echo "duplicate_issue_number=$DUPLICATE_ISSUE_NUMBER" >> $GITHUB_OUTPUT
+              echo "Duplicate issue found: $DUPLICATE_ISSUE_URL"
+            fi
+          fi
+
+      - name: Run AI issue analysis
+        id: analysis
+        if: steps.duplicate-check.outputs.is_duplicate != 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_DESCRIPTION: ${{ github.event.issue.body }}
+        run: |
+          cd ai-triage
           
           # Run the CLI analysis using environment variables
           echo "Running AI analysis..."
@@ -94,6 +137,7 @@ jobs:
       
       - name: Parse Analysis Results
         id: parse
+        if: steps.duplicate-check.outputs.is_duplicate != 'true'
         run: |
           cd ai-triage
           
@@ -110,7 +154,48 @@ jobs:
           echo "$SUMMARY" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
       
+      - name: Post duplicate issue comment
+        if: steps.duplicate-check.outputs.is_duplicate == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Read the duplicate check result
+            let duplicateText;
+            try {
+              duplicateText = fs.readFileSync('ai-triage/duplicate_result.txt', 'utf8');
+            } catch (error) {
+              console.error('Error reading duplicate result file:', error);
+              duplicateText = 'This issue appears to be a duplicate, but failed to read detailed analysis.';
+            }
+            
+            const duplicateUrl = '${{ steps.duplicate-check.outputs.duplicate_issue_url }}';
+            const duplicateNumber = '${{ steps.duplicate-check.outputs.duplicate_issue_number }}';
+            
+            let comment = '**Duplicate Issue Detected**\n\n';
+            comment += duplicateText + '\n\n';
+            
+            if (duplicateUrl) {
+              comment += `**Related Issue**: ${duplicateUrl}\n`;
+            } else if (duplicateNumber) {
+              comment += `**Related Issue**: #${duplicateNumber}\n`;
+            }
+            
+            comment += '\n---\n*This analysis was performed automatically by AI.*';
+            
+            // Post the comment
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+            
+            console.log('Duplicate issue comment posted successfully');
+
       - name: Post analysis as issue comment
+        if: steps.duplicate-check.outputs.is_duplicate != 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -142,22 +227,29 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const isDuplicate = '${{ steps.duplicate-check.outputs.is_duplicate }}' === 'true';
             const issueType = '${{ steps.parse.outputs.issue_type }}';
             const severity = '${{ steps.parse.outputs.severity }}';
             
             const labels = [];
             
-            // Add analysis label
-            labels.push('gemini-analyzed');
-            
-            // Add type label if available
-            if (issueType && issueType !== 'null' && issueType !== '') {
-              labels.push(`type:${issueType.toLowerCase()}`);
-            }
-            
-            // Add severity label if available
-            if (severity && severity !== 'null' && severity !== '') {
-              labels.push(`severity:${severity.toLowerCase()}`);
+            if (isDuplicate) {
+              // Add duplicate-specific labels
+              labels.push('gemini-analyzed');
+              labels.push('duplicate');
+            } else {
+              // Add analysis label
+              labels.push('gemini-analyzed');
+              
+              // Add type label if available
+              if (issueType && issueType !== 'null' && issueType !== '') {
+                labels.push(`type:${issueType.toLowerCase()}`);
+              }
+              
+              // Add severity label if available
+              if (severity && severity !== 'null' && severity !== '') {
+                labels.push(`severity:${severity.toLowerCase()}`);
+              }
             }
             
             if (labels.length > 0) {
@@ -177,6 +269,8 @@ jobs:
         with:
           name: issue-analysis-${{ github.event.issue.number }}
           path: |
+            ai-triage/duplicate_result.json
+            ai-triage/duplicate_result.txt
             ai-triage/analysis_result.json
             ai-triage/analysis_result.txt
             repomix-output.txt
