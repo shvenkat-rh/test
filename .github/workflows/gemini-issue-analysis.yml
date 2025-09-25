@@ -106,18 +106,45 @@ jobs:
           
           # Run duplicate check first
           echo "Checking for duplicate issues..."
-          python duplicate_cli.py \
-            --title "$ISSUE_TITLE" \
-            --description "$ISSUE_DESCRIPTION" \
-            --issues existing_issues.json \
-            --output json > duplicate_result.json
+          echo "Current directory: $(pwd)"
+          echo "Files in directory: $(ls -la)"
+          echo "Checking if duplicate_cli.py exists: $(ls -la duplicate_cli.py 2>/dev/null || echo 'NOT FOUND')"
           
-          # Also generate text format for duplicate check
+          # Check if duplicate_cli.py exists and is executable
+          if [ ! -f "duplicate_cli.py" ]; then
+            echo "ERROR: duplicate_cli.py not found in ai-triage directory"
+            echo "Available Python files:"
+            find . -name "*.py" -type f
+            exit 1
+          fi
+          
+          # Run duplicate check with error handling
+          set +e  # Don't exit on error temporarily
           python duplicate_cli.py \
             --title "$ISSUE_TITLE" \
             --description "$ISSUE_DESCRIPTION" \
             --issues existing_issues.json \
-            --output text > duplicate_result.txt
+            --output json > duplicate_result.json 2>&1
+          
+          DUPLICATE_EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+          
+          if [ $DUPLICATE_EXIT_CODE -ne 0 ]; then
+            echo "ERROR: duplicate_cli.py failed with exit code $DUPLICATE_EXIT_CODE"
+            echo "Output from duplicate_result.json:"
+            cat duplicate_result.json 2>/dev/null || echo "No output file created"
+            
+            # Create a fallback result indicating no duplicate found
+            echo '{"is_duplicate": false, "error": "duplicate_cli.py failed"}' > duplicate_result.json
+            echo "No duplicate detected (duplicate_cli.py failed)" > duplicate_result.txt
+          else
+            # Also generate text format for duplicate check
+            python duplicate_cli.py \
+              --title "$ISSUE_TITLE" \
+              --description "$ISSUE_DESCRIPTION" \
+              --issues existing_issues.json \
+              --output text > duplicate_result.txt
+          fi
           
           echo "Duplicate check completed"
           
