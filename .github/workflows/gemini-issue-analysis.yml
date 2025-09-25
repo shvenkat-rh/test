@@ -76,17 +76,13 @@ jobs:
           python duplicate_cli.py \
             --title "$ISSUE_TITLE" \
             --description "$ISSUE_DESCRIPTION" \
-            --format json \
-            --output duplicate_result.json \
-            --quiet
+            --output json > duplicate_result.json
           
           # Also generate text format for duplicate check
           python duplicate_cli.py \
             --title "$ISSUE_TITLE" \
             --description "$ISSUE_DESCRIPTION" \
-            --format text \
-            --output duplicate_result.txt \
-            --quiet
+            --output text > duplicate_result.txt
           
           echo "Duplicate check completed"
           
