@@ -68,17 +68,25 @@ jobs:
           cd ai-triage
           
           echo "Checking for prompt injection..."
+          echo "ISSUE_TITLE: '$ISSUE_TITLE'"
+          echo "ISSUE_DESCRIPTION: '$ISSUE_DESCRIPTION'"
           
           # Use the prompt injection detection from the AI-Issue-Triage repository
           if [ -f "prompt_injection.py" ]; then
             echo "Using prompt_injection.py for security check"
             
             # Run prompt injection detection - pass title and description directly
+            echo "Running: python prompt_injection.py with title and description"
             python prompt_injection.py "$ISSUE_TITLE" "$ISSUE_DESCRIPTION" > prompt_injection_result.json 2>&1
+            
+            echo "Script execution completed, checking results..."
+            echo "Contents of prompt_injection_result.json:"
+            cat prompt_injection_result.json || echo "No result file created"
             
             # Parse results
             if [ -f prompt_injection_result.json ]; then
               HAS_INJECTION=$(jq -r '.has_prompt_injection // false' prompt_injection_result.json 2>/dev/null || echo "false")
+              echo "Parsed has_prompt_injection: $HAS_INJECTION"
               echo "has_prompt_injection=$HAS_INJECTION" >> $GITHUB_OUTPUT
               
               if [ "$HAS_INJECTION" = "true" ]; then
@@ -87,6 +95,7 @@ jobs:
                 echo "No prompt injection detected"
               fi
             else
+              echo "No result file found, assuming no injection"
               echo "has_prompt_injection=false" >> $GITHUB_OUTPUT
             fi
           else
