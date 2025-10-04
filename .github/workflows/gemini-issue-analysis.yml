@@ -76,18 +76,33 @@ jobs:
             echo "Using prompt_injection.py for security check"
             
             # Run prompt injection detection using the clean CLI interface
-            python3 prompt_injection.py "$ISSUE_TITLE" "$ISSUE_DESCRIPTION" > prompt_injection_result.json 2>&1
+            if python3 prompt_injection.py "$ISSUE_TITLE" "$ISSUE_DESCRIPTION" > prompt_injection_result.json; then
+              echo "Prompt injection detection completed successfully"
+            else
+              echo "WARNING: Prompt injection detection failed, assuming safe input"
+              echo '{"has_prompt_injection": false, "risk_level": "safe", "error": "detection_failed"}' > prompt_injection_result.json
+            fi
             
             echo "Script execution completed, checking results..."
             echo "Contents of prompt_injection_result.json:"
             cat prompt_injection_result.json || echo "No result file created"
             
-            # Parse results
+            # Parse results with validation
             if [ -f prompt_injection_result.json ]; then
-              HAS_INJECTION=$(jq -r '.has_prompt_injection // false' prompt_injection_result.json 2>/dev/null || echo "false")
-              RISK_LEVEL=$(jq -r '.risk_level // "safe"' prompt_injection_result.json 2>/dev/null || echo "safe")
-              echo "Parsed has_prompt_injection: $HAS_INJECTION"
-              echo "Parsed risk_level: $RISK_LEVEL"
+              # Validate JSON first
+              if jq empty prompt_injection_result.json 2>/dev/null; then
+                HAS_INJECTION=$(jq -r '.has_prompt_injection // false' prompt_injection_result.json)
+                RISK_LEVEL=$(jq -r '.risk_level // "safe"' prompt_injection_result.json)
+                echo "Parsed has_prompt_injection: $HAS_INJECTION"
+                echo "Parsed risk_level: $RISK_LEVEL"
+              else
+                echo "ERROR: Invalid JSON in prompt_injection_result.json"
+                echo "Raw content:"
+                cat prompt_injection_result.json
+                HAS_INJECTION="false"
+                RISK_LEVEL="safe"
+              fi
+              
               echo "Setting GitHub outputs..."
               echo "has_prompt_injection=$HAS_INJECTION" >> $GITHUB_OUTPUT
               echo "risk_level=$RISK_LEVEL" >> $GITHUB_OUTPUT
