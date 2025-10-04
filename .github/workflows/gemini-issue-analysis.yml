@@ -75,9 +75,50 @@ jobs:
           if [ -f "prompt_injection.py" ]; then
             echo "Using prompt_injection.py for security check"
             
-            # Run prompt injection detection - pass title and description directly
-            echo "Running: python prompt_injection.py with title and description"
-            python prompt_injection.py "$ISSUE_TITLE" "$ISSUE_DESCRIPTION" > prompt_injection_result.json 2>&1
+            # Run prompt injection detection using the correct module approach
+            python3 -c "
+import os
+import json
+from prompt_injection import detect_prompt_injection
+
+title = os.environ.get('ISSUE_TITLE', '')
+description = os.environ.get('ISSUE_DESCRIPTION', '')
+
+print('Testing title for prompt injection...')
+title_result = detect_prompt_injection(title) if title else None
+
+print('Testing description for prompt injection...')
+desc_result = detect_prompt_injection(description) if description else None
+
+# Determine if either has injection
+has_injection = False
+risk_level = 'safe'
+confidence = 0.0
+detected_patterns = []
+
+if title_result and title_result.is_injection:
+    has_injection = True
+    risk_level = title_result.risk_level.value
+    confidence = max(confidence, title_result.confidence_score)
+    if title_result.detected_patterns:
+        detected_patterns.extend(title_result.detected_patterns)
+
+if desc_result and desc_result.is_injection:
+    has_injection = True
+    risk_level = desc_result.risk_level.value
+    confidence = max(confidence, desc_result.confidence_score)
+    if desc_result.detected_patterns:
+        detected_patterns.extend(desc_result.detected_patterns)
+
+result = {
+    'has_prompt_injection': has_injection,
+    'risk_level': risk_level,
+    'confidence_score': confidence,
+    'detected_patterns': detected_patterns[:3]  # Limit to first 3 patterns
+}
+
+print(json.dumps(result, indent=2))
+" > prompt_injection_result.json 2>&1
             
             echo "Script execution completed, checking results..."
             echo "Contents of prompt_injection_result.json:"
@@ -86,21 +127,26 @@ jobs:
             # Parse results
             if [ -f prompt_injection_result.json ]; then
               HAS_INJECTION=$(jq -r '.has_prompt_injection // false' prompt_injection_result.json 2>/dev/null || echo "false")
+              RISK_LEVEL=$(jq -r '.risk_level // "safe"' prompt_injection_result.json 2>/dev/null || echo "safe")
               echo "Parsed has_prompt_injection: $HAS_INJECTION"
+              echo "Parsed risk_level: $RISK_LEVEL"
               echo "has_prompt_injection=$HAS_INJECTION" >> $GITHUB_OUTPUT
+              echo "risk_level=$RISK_LEVEL" >> $GITHUB_OUTPUT
               
               if [ "$HAS_INJECTION" = "true" ]; then
-                echo "SECURITY ALERT: Prompt injection detected!"
+                echo "SECURITY ALERT: Prompt injection detected! Risk Level: $RISK_LEVEL"
               else
                 echo "No prompt injection detected"
               fi
             else
               echo "No result file found, assuming no injection"
               echo "has_prompt_injection=false" >> $GITHUB_OUTPUT
+              echo "risk_level=safe" >> $GITHUB_OUTPUT
             fi
           else
             echo "prompt_injection.py not found, skipping security check"
             echo "has_prompt_injection=false" >> $GITHUB_OUTPUT
+            echo "risk_level=safe" >> $GITHUB_OUTPUT
           fi
 
       - name: Post prompt injection warning
