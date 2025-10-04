@@ -73,40 +73,21 @@ jobs:
           if [ -f "prompt_injection.py" ]; then
             echo "Using prompt_injection.py for security check"
             
-            # Run prompt injection detection
-            python -c "
-import sys
-sys.path.append('.')
-from prompt_injection import detect_prompt_injection
-import json
-import os
-
-title = os.environ.get('ISSUE_TITLE', '')
-description = os.environ.get('ISSUE_DESCRIPTION', '')
-
-# Check both title and description for prompt injection
-title_result = detect_prompt_injection(title) if title else False
-desc_result = detect_prompt_injection(description) if description else False
-
-has_injection = title_result or desc_result
-
-result = {
-    'has_prompt_injection': has_injection,
-    'title_injection': title_result,
-    'description_injection': desc_result
-}
-
-print(json.dumps(result))
-" > prompt_injection_result.json
+            # Run prompt injection detection - pass title and description directly
+            python prompt_injection.py "$ISSUE_TITLE" "$ISSUE_DESCRIPTION" > prompt_injection_result.json 2>&1
             
             # Parse results
-            HAS_INJECTION=$(jq -r '.has_prompt_injection // false' prompt_injection_result.json)
-            echo "has_prompt_injection=$HAS_INJECTION" >> $GITHUB_OUTPUT
-            
-            if [ "$HAS_INJECTION" = "true" ]; then
-              echo "SECURITY ALERT: Prompt injection detected!"
+            if [ -f prompt_injection_result.json ]; then
+              HAS_INJECTION=$(jq -r '.has_prompt_injection // false' prompt_injection_result.json 2>/dev/null || echo "false")
+              echo "has_prompt_injection=$HAS_INJECTION" >> $GITHUB_OUTPUT
+              
+              if [ "$HAS_INJECTION" = "true" ]; then
+                echo "SECURITY ALERT: Prompt injection detected!"
+              else
+                echo "No prompt injection detected"
+              fi
             else
-              echo "No prompt injection detected"
+              echo "has_prompt_injection=false" >> $GITHUB_OUTPUT
             fi
           else
             echo "prompt_injection.py not found, skipping security check"
