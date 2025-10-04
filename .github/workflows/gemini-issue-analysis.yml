@@ -19,7 +19,7 @@ jobs:
       - name: Setup Node.js for repomix
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
       
       - name: Setup Python for AI analysis
         uses: actions/setup-python@v4
@@ -50,8 +50,20 @@ jobs:
       - name: Install Python dependencies for AI triage
         run: |
           cd ai-triage
-          pip install -r requirements.txt
-          echo "Python dependencies installed successfully"
+          
+          echo "Installing Python dependencies..."
+          if pip install -r requirements.txt; then
+            echo "Python dependencies installed successfully"
+          else
+            echo "ERROR: Failed to install Python dependencies"
+            echo "Requirements file contents:"
+            cat requirements.txt
+            exit 1
+          fi
+          
+          # Verify critical packages are installed
+          python3 -c "import pytector; print('✓ pytector installed')" || echo "⚠️ pytector not available"
+          python3 -c "import google.genai; print('✓ google-genai installed')" || echo "⚠️ google-genai not available"
       
       - name: Prepare issue content
         id: issue-content
@@ -76,16 +88,25 @@ jobs:
             echo "Using prompt_injection.py for security check"
             
             # Run prompt injection detection using the clean CLI interface
-            if python3 prompt_injection.py "$ISSUE_TITLE" "$ISSUE_DESCRIPTION" > prompt_injection_result.json; then
+            if python3 prompt_injection.py "$ISSUE_TITLE" "$ISSUE_DESCRIPTION" > prompt_injection_result.json 2>prompt_injection_debug.log; then
               echo "Prompt injection detection completed successfully"
             else
-              echo "WARNING: Prompt injection detection failed, assuming safe input"
-              echo '{"has_prompt_injection": false, "risk_level": "safe", "error": "detection_failed"}' > prompt_injection_result.json
+              echo "WARNING: Prompt injection detection failed, running debug mode..."
+              python3 prompt_injection.py "$ISSUE_TITLE" "$ISSUE_DESCRIPTION" --debug > prompt_injection_result.json 2>&1 || {
+                echo "Debug mode also failed, assuming safe input"
+                echo '{"has_prompt_injection": false, "risk_level": "safe", "error": "detection_failed"}' > prompt_injection_result.json
+              }
             fi
             
             echo "Script execution completed, checking results..."
             echo "Contents of prompt_injection_result.json:"
             cat prompt_injection_result.json || echo "No result file created"
+            
+            # Show debug log if it exists
+            if [ -f prompt_injection_debug.log ] && [ -s prompt_injection_debug.log ]; then
+              echo "Debug log contents:"
+              cat prompt_injection_debug.log
+            fi
             
             # Parse results with validation
             if [ -f prompt_injection_result.json ]; then
@@ -133,7 +154,26 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const comment = 'Prompt injection detected';
+            const riskLevel = '${{ steps.prompt-injection.outputs.risk_level }}';
+            const riskEmoji = {
+              'critical': '🚨',
+              'high': '⚠️',
+              'medium': '⚡',
+              'low': 'ℹ️'
+            };
+            
+            const comment = (riskEmoji[riskLevel] || '⚠️') + ' **Security Alert: Potential Prompt Injection Detected**\n\n' +
+              '**Risk Level:** ' + riskLevel.toUpperCase() + '\n\n' +
+              'This issue contains content that appears to be a prompt injection attempt. For security reasons, this issue will not be processed by the AI analysis system.\n\n' +
+              '**What is prompt injection?**\n' +
+              'Prompt injection is a type of attack where malicious instructions are embedded in user input to manipulate AI systems into performing unintended actions.\n\n' +
+              '**Next Steps:**\n' +
+              '- This issue will remain open but will not receive AI analysis\n' +
+              '- Please review the issue content and remove any suspicious instructions\n' +
+              '- If this is a legitimate issue, please rephrase it using clear, direct language\n' +
+              '- Contact the repository maintainers if you believe this detection is incorrect\n\n' +
+              '---\n' +
+              '*This security check is performed automatically to protect the AI analysis system.*';
             
             // Post the comment
             await github.rest.issues.createComment({
@@ -143,7 +183,23 @@ jobs:
               body: comment
             });
             
-            console.log('Prompt injection warning posted');
+            // Add a security label
+            await github.rest.issues.addLabels({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: ['security-alert', 'prompt-injection-detected']
+            });
+            
+            console.log('Prompt injection warning posted with security labels');
+
+      # Immediately end workflow if prompt injection is detected
+      - name: End workflow for prompt injection
+        if: steps.prompt-injection.outputs.has_prompt_injection == 'true'
+        run: |
+          echo "Workflow terminated due to prompt injection detection"
+          echo "Issue has been flagged with security alert - no further processing will occur"
+          exit 0
 
       - name: Fetch existing issues for duplicate check
         id: fetch-issues
@@ -420,6 +476,8 @@ jobs:
             ai-triage/duplicate_result.txt
             ai-triage/analysis_result.json
             ai-triage/analysis_result.txt
+            ai-triage/prompt_injection_result.json
+            ai-triage/prompt_injection_debug.log
             repomix-output.txt
           retention-days: 30
 
