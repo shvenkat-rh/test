@@ -162,18 +162,31 @@ jobs:
               'low': 'ℹ️'
             };
             
-            const comment = (riskEmoji[riskLevel] || '⚠️') + ' **Security Alert: Potential Prompt Injection Detected**\n\n' +
-              '**Risk Level:** ' + riskLevel.toUpperCase() + '\n\n' +
-              'This issue contains content that appears to be a prompt injection attempt. For security reasons, this issue will not be processed by the AI analysis system.\n\n' +
-              '**What is prompt injection?**\n' +
-              'Prompt injection is a type of attack where malicious instructions are embedded in user input to manipulate AI systems into performing unintended actions.\n\n' +
-              '**Next Steps:**\n' +
-              '- This issue will remain open but will not receive AI analysis\n' +
-              '- Please review the issue content and remove any suspicious instructions\n' +
-              '- If this is a legitimate issue, please rephrase it using clear, direct language\n' +
-              '- Contact the repository maintainers if you believe this detection is incorrect\n\n' +
-              '---\n' +
-              '*This security check is performed automatically to protect the AI analysis system.*';
+            const isHighRisk = ['critical', 'high'].includes(riskLevel);
+            
+            let comment = (riskEmoji[riskLevel] || '⚠️') + ' **Security Alert: Potential Prompt Injection Detected**\n\n' +
+              '**Risk Level:** ' + riskLevel.toUpperCase() + '\n\n';
+            
+            if (isHighRisk) {
+              comment += 'This issue contains content that appears to be a significant prompt injection attempt. For security reasons, this issue will not be processed by the AI analysis system.\n\n' +
+                '**What is prompt injection?**\n' +
+                'Prompt injection is a type of attack where malicious instructions are embedded in user input to manipulate AI systems into performing unintended actions.\n\n' +
+                '**Next Steps:**\n' +
+                '- This issue will remain open but will not receive AI analysis\n' +
+                '- Please review the issue content and remove any suspicious instructions\n' +
+                '- If this is a legitimate issue, please rephrase it using clear, direct language\n' +
+                '- Contact the repository maintainers if you believe this detection is incorrect\n\n';
+            } else {
+              comment += 'This issue contains content that may contain prompt injection patterns, but the risk level is considered manageable. The issue will be processed with additional security measures.\n\n' +
+                '**What was detected?**\n' +
+                'The content contains patterns that could potentially be used for prompt injection, but the confidence level is low enough to allow processing.\n\n' +
+                '**Next Steps:**\n' +
+                '- This issue will continue to receive AI analysis with enhanced security filtering\n' +
+                '- If you intended to include instructions for the AI, please use clear, direct language\n' +
+                '- Contact the repository maintainers if you have concerns about this detection\n\n';
+            }
+            
+            comment += '---\n*This security check is performed automatically to protect the AI analysis system.*';
             
             // Post the comment
             await github.rest.issues.createComment({
@@ -183,27 +196,53 @@ jobs:
               body: comment
             });
             
-            // Add a security label
+            // Add appropriate security labels
+            const labels = ['security-alert'];
+            if (isHighRisk) {
+              labels.push('prompt-injection-blocked');
+            } else {
+              labels.push('prompt-injection-warning');
+            }
+            
             await github.rest.issues.addLabels({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              labels: ['security-alert', 'prompt-injection-detected']
+              labels: labels
             });
             
-            console.log('Prompt injection warning posted with security labels');
+            console.log(`Prompt injection ${isHighRisk ? 'blocking' : 'warning'} posted with security labels`);
 
-      # Immediately end workflow if prompt injection is detected
-      - name: End workflow for prompt injection
-        if: steps.prompt-injection.outputs.has_prompt_injection == 'true'
+      # Only end workflow for HIGH and CRITICAL risk injections
+      - name: End workflow for high-risk prompt injection
+        if: steps.prompt-injection.outputs.has_prompt_injection == 'true' && (steps.prompt-injection.outputs.risk_level == 'high' || steps.prompt-injection.outputs.risk_level == 'critical')
         run: |
-          echo "Workflow terminated due to prompt injection detection"
+          echo "Workflow terminated due to HIGH/CRITICAL risk prompt injection detection"
+          echo "Risk level: ${{ steps.prompt-injection.outputs.risk_level }}"
           echo "Issue has been flagged with security alert - no further processing will occur"
           exit 0
 
+      # Set a flag for whether to continue processing (safe OR low/medium risk)
+      - name: Determine if processing should continue
+        id: should-continue
+        run: |
+          if [ "${{ steps.prompt-injection.outputs.has_prompt_injection }}" = "true" ]; then
+            RISK_LEVEL="${{ steps.prompt-injection.outputs.risk_level }}"
+            if [ "$RISK_LEVEL" = "high" ] || [ "$RISK_LEVEL" = "critical" ]; then
+              echo "continue_processing=false" >> $GITHUB_OUTPUT
+              echo "Processing blocked due to high-risk prompt injection"
+            else
+              echo "continue_processing=true" >> $GITHUB_OUTPUT
+              echo "Processing continues with low/medium risk injection warning"
+            fi
+          else
+            echo "continue_processing=true" >> $GITHUB_OUTPUT
+            echo "Processing continues - no prompt injection detected"
+          fi
+
       - name: Fetch existing issues for duplicate check
         id: fetch-issues
-        if: steps.prompt-injection.outputs.has_prompt_injection != 'true'
+        if: steps.should-continue.outputs.continue_processing == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -236,7 +275,7 @@ jobs:
 
       - name: Check for duplicate issues
         id: duplicate-check
-        if: steps.prompt-injection.outputs.has_prompt_injection != 'true'
+        if: steps.should-continue.outputs.continue_processing == 'true'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
@@ -308,7 +347,7 @@ jobs:
 
       - name: Run AI issue analysis
         id: analysis
-        if: steps.duplicate-check.outputs.is_duplicate != 'true' && steps.prompt-injection.outputs.has_prompt_injection != 'true'
+        if: steps.duplicate-check.outputs.is_duplicate != 'true' && steps.should-continue.outputs.continue_processing == 'true'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
@@ -339,7 +378,7 @@ jobs:
       
       - name: Parse Analysis Results
         id: parse
-        if: steps.duplicate-check.outputs.is_duplicate != 'true' && steps.prompt-injection.outputs.has_prompt_injection != 'true'
+        if: steps.duplicate-check.outputs.is_duplicate != 'true' && steps.should-continue.outputs.continue_processing == 'true'
         run: |
           cd ai-triage
           
@@ -397,7 +436,7 @@ jobs:
             console.log('Duplicate issue comment posted successfully');
 
       - name: Post analysis as issue comment
-        if: steps.duplicate-check.outputs.is_duplicate != 'true' && steps.prompt-injection.outputs.has_prompt_injection != 'true'
+        if: steps.duplicate-check.outputs.is_duplicate != 'true' && steps.should-continue.outputs.continue_processing == 'true'
         uses: actions/github-script@v7
         with:
           script: |
